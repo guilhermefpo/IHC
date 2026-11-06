@@ -1,0 +1,14 @@
+# LLM e Text-to-SQL (dspy usa o litellm para falar com o Jan)
+dspy==3.3.1
+litellm==1.100.1
+
+# API HTTP
+fastapi==0.141.1
+uvicorn==0.52.4
+
+# Bot do Telegram
+pyTelegramBotAPI==4.36.1
+requests==2.34.2
+
+# Leitura do .env
+python-dotenv==1.2.3

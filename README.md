@@ -66,7 +66,7 @@ No Jan:
 Instale as dependências:
 
 ```
-pip install dspy fastapi uvicorn pyTelegramBotAPI python-dotenv requests
+pip install -r requirements.txt
 ```
 
 Em um terminal, suba a API:
