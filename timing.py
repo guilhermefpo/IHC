@@ -1,4 +1,7 @@
-"""Medições locais por chamada, em segundos, inclusive quando há erro."""
+"""Medições locais por chamada, em segundos, inclusive quando há erro.
+
+Usado pelo bot e pelo fatec.py para registrar quanto tempo cada etapa levou.
+"""
 
 from contextlib import contextmanager
 from time import perf_counter

@@ -1,3 +1,5 @@
+"""API HTTP (FastAPI) que expõe o Text-to-SQL do fatec.py para o bot."""
+
 from fastapi import FastAPI, HTTPException
 from fatec import generate, create_db, warm_up
 
@@ -8,6 +10,9 @@ app = FastAPI(
 )
 
 
+# ---------------------------------------------------------------------------
+# Inicialização: cria o banco e aquece o modelo
+# ---------------------------------------------------------------------------
 @app.on_event("startup")
 def startup():
     create_db()
@@ -18,6 +23,9 @@ def startup():
         print(f"Aquecimento do LLM falhou: {erro}")
 
 
+# ---------------------------------------------------------------------------
+# Rotas: verificação de saúde e consulta em linguagem natural
+# ---------------------------------------------------------------------------
 @app.get("/")
 def home():
     return {"mensagem": "API de Estoque funcionando!"}

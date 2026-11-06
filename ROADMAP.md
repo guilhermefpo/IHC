@@ -10,24 +10,20 @@
   o GitHub, gerar outro no BotFather.
 - [ ] **Tirar `__pycache__/*.pyc` do repositório.** Esses arquivos são gerados
   automaticamente e não devem ser commitados.
-- [ ] **Ter um único banco e um único schema.** Hoje existem dois bancos
-  diferentes:
-  - `fatec.py` usa `lojas.db` com uma tabela só, `produtos`, e colunas como
-    `qntd` e `data_venci`;
-  - `app/database/schema.sql` define as tabelas `departamentos` e `produtos`
-    com chave estrangeira.
-
-  Escolher um dos dois. Se o requisito pedir modelagem com relacionamento,
-  usar o de `app/`.
+- [x] **Ter um único banco e um único schema.** O schema alternativo de `app/`
+  (com tabela `departamentos`) foi removido; o banco usado é o `lojas.db` do
+  `fatec.py`. Se o requisito pedir modelagem com relacionamento, recuperar
+  `schema.sql` e `seed.py` do histórico do git.
 - [ ] **Adicionar um `requirements.txt` com versões fixas.** Sem ele, o
   projeto depende do Python instalado na máquina.
-- [ ] **Corrigir `app/integrations/whisper_service.py`.** O arquivo tem só o
-  texto `py list`, digitado por engano.
+- [x] **Remover arquivos vazios e pastas sem uso** (`app/`, `scripts/`,
+  `data/`, `main.py`, testes vazios).
 
 ## Fase 2 — Organizar a arquitetura (2–3 dias)
 
-Hoje tudo fica em `fatec.py`. A ideia é dividir o código nos arquivos vazios
-que já existem em `app/`:
+Hoje tudo fica em `fatec.py`. Quando o projeto crescer, a ideia é dividir o
+código em módulos dentro de uma pasta `app/` (criados só quando forem
+implementados):
 
 | Arquivo | O que vai nele |
 |---|---|
@@ -46,10 +42,10 @@ que já existem em `app/`:
 
 ## Fase 3 — Funcionalidades que faltam (3–5 dias)
 
-- [ ] **Voz.** Implementar `whisper_service.py` (transcrição local com
+- [ ] **Voz.** Criar `app/integrations/whisper_service.py` (transcrição local com
   faster-whisper ou o Whisper do Jan) e reativar o handler de voz do bot. É um
   diferencial forte para uma disciplina de IHC.
-- [ ] **Rotas de produtos (CRUD)** em `produtos_routes.py`, se o requisito
+- [ ] **Rotas de produtos (CRUD)** no `server.py`, se o requisito
   pedir gestão de estoque. O bot continua apenas consultando.
 - [ ] **Memória curta de conversa**, por exemplo "e o feijão?" depois de
   "quanto custa o arroz?". Hoje cada mensagem é tratada de forma independente.
@@ -59,14 +55,13 @@ que já existem em `app/`:
 
 ## Fase 4 — Medir a qualidade (2–3 dias)
 
-- [ ] **Montar o conjunto de avaliação** em `app/evaluation/questions.json`,
+- [ ] **Montar o conjunto de avaliação** em `evaluation/questions.json`,
   com 50 ou mais perguntas e o SQL ou resultado esperado de cada uma.
-- [ ] **Escrever o avaliador.** `metrics.py` e `evaluator.py` comparam o
+- [ ] **Escrever o avaliador** (`evaluation/evaluator.py`), que compara o
   resultado da consulta gerada com o esperado (mais robusto que comparar o
-  texto do SQL) e medem a latência. O script `scripts/evaluate.py` gera um
+  texto do SQL) e mede a latência. O script `scripts/evaluate.py` gera um
   relatório.
-- [ ] **Otimizar o prompt com GEPA/DSPy** (`gepa_optimizer.py` e
-  `scripts/optimize.py`), usando esse conjunto, e mostrar a acurácia antes e
+- [ ] **Otimizar o prompt com GEPA/DSPy** (`scripts/optimize.py`), usando esse conjunto, e mostrar a acurácia antes e
   depois. É isso que transforma o projeto de "funciona" em "funciona e prova
   que funciona".
 - [ ] **Testar o modelo no Jan:**
@@ -76,7 +71,7 @@ que já existem em `app/`:
 
 ## Fase 5 — Testes e entrega (1–2 dias)
 
-- [ ] **Preencher os arquivos de teste vazios:**
+- [ ] **Criar os testes que faltam:**
   - `tests/test_validator.py`: SQL malicioso bloqueado, como `DROP` e
     múltiplas consultas;
   - `tests/test_database.py`;

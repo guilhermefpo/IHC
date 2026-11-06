@@ -1,3 +1,8 @@
+"""Núcleo Text-to-SQL: transforma perguntas em português em SQL e executa no SQLite.
+
+Fluxo: generate() -> cache -> LLM local (Jan/Qwen3 via DSPy) -> validação -> consulta.
+"""
+
 import sqlite3
 import dspy
 import os
@@ -9,6 +14,9 @@ from functools import lru_cache
 from dotenv import load_dotenv
 from timing import measure
 
+# ---------------------------------------------------------------------------
+# Configuração geral: variáveis de ambiente, métricas e caminho do banco
+# ---------------------------------------------------------------------------
 load_dotenv()
 
 request_metrics = ContextVar("request_metrics", default=None)
@@ -20,6 +28,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(BASE_DIR, "lojas.db")
 
 
+# ---------------------------------------------------------------------------
+# Banco de dados: cria a tabela produtos e insere dados de exemplo
+# ---------------------------------------------------------------------------
 def create_db():
     conn = sqlite3.connect(db_path)
     c = conn.cursor()
@@ -100,6 +111,9 @@ def create_db():
     conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Schema enviado ao LLM e usado na validação do SQL
+# ---------------------------------------------------------------------------
 SCHEMA = """
 CREATE TABLE produtos (
     id INTEGER PRIMARY KEY,
@@ -114,6 +128,9 @@ CREATE TABLE produtos (
 );
 """
 
+# ---------------------------------------------------------------------------
+# Modelo de linguagem: conexão com o Jan e parâmetros de geração
+# ---------------------------------------------------------------------------
 lm = dspy.LM(
     # Troque JAN_MODEL no .env ao trocar o modelo no Jan (ex.: versão Q8_0).
     f"openai/{os.getenv('JAN_MODEL', 'Qwen3-0_6B-BF16')}",
@@ -132,6 +149,9 @@ lm = dspy.LM(
 dspy.configure(lm=lm, adapter=dspy.ChatAdapter(use_json_adapter_fallback=False))
 
 
+# ---------------------------------------------------------------------------
+# Prompt (assinatura DSPy): regras e exemplos de pergunta -> SQL
+# ---------------------------------------------------------------------------
 class TextToSQL(dspy.Signature):
     """
     Interprete o significado da pergunta em português e transforme-a
@@ -420,6 +440,9 @@ Não confunda o maior preço de um departamento com o maior preço do estoque.
     )
 
 
+# ---------------------------------------------------------------------------
+# Gerador: chama o LLM, trata ESCLARECER/SEM_DADOS e valida o SQL
+# ---------------------------------------------------------------------------
 class InterpretationRequired(ValueError):
     """Resposta de interpretação que não deve ser executada como SQL."""
 
@@ -518,6 +541,9 @@ class ReliableSQLGenerator(dspy.Module):
 generator = ReliableSQLGenerator()
 
 
+# ---------------------------------------------------------------------------
+# Aquecimento: carrega o modelo antes da primeira pergunta
+# ---------------------------------------------------------------------------
 def warm_up():
     """
     Carrega o modelo no Jan e preenche o cache de prefixo do llama.cpp.
@@ -527,6 +553,9 @@ def warm_up():
         generator.generate_sql(dbschema=SCHEMA, question="quanto custa o arroz?")
 
 
+# ---------------------------------------------------------------------------
+# Ponto de entrada: gera o SQL (com cache), executa e devolve o resultado
+# ---------------------------------------------------------------------------
 def generate(question):
     """
     Normaliza a pergunta antes de consultar o cache.
@@ -599,6 +628,9 @@ def generate_cached(question, schema=SCHEMA):
     return generator(schema, question)
 
 
+# ---------------------------------------------------------------------------
+# Execução direta para teste rápido: python fatec.py
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
     create_db()
 

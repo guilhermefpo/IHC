@@ -1,3 +1,5 @@
+"""Testes do cache de SQL e das métricas do fatec.py (o LLM é simulado com mock)."""
+
 import sqlite3
 import tempfile
 import unittest

@@ -1,3 +1,5 @@
+"""Bot do Telegram: recebe perguntas, consulta a API e responde em linguagem natural."""
+
 import json
 import os
 import re
@@ -9,6 +11,9 @@ from dotenv import load_dotenv
 from timing import measure
 
 
+# ---------------------------------------------------------------------------
+# Configuração: token do Telegram e endereço da API
+# ---------------------------------------------------------------------------
 load_dotenv()
 
 API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -22,6 +27,9 @@ if not API_TOKEN:
 bot = telebot.TeleBot(API_TOKEN)
 
 
+# ---------------------------------------------------------------------------
+# Comunicação com a API (server.py)
+# ---------------------------------------------------------------------------
 def normalizar_pergunta(texto: str) -> str:
     """
     Converte para minúsculas e remove espaços repetidos.
@@ -72,6 +80,9 @@ def consultar_api(pergunta: str):
     return resposta.json()
 
 
+# ---------------------------------------------------------------------------
+# Formatação: transforma colunas e linhas em frases naturais (sem LLM)
+# ---------------------------------------------------------------------------
 PADRAO_PRODUTO = re.compile(
     r"nome\)?\s*(?:=|like)\s*(?:lower\()?\s*'%?([^'%]+)%?'",
     re.IGNORECASE,
@@ -226,6 +237,9 @@ def formatar_resultado(dados: dict) -> str:
     return texto
 
 
+# ---------------------------------------------------------------------------
+# Envio ao Telegram: divide mensagens longas e edita o aviso
+# ---------------------------------------------------------------------------
 def dividir_mensagem(texto: str, tamanho: int = 3900):
     """
     Divide respostas maiores que o limite do Telegram.
@@ -247,6 +261,9 @@ def editar_aviso(aviso, texto: str):
     )
 
 
+# ---------------------------------------------------------------------------
+# Handlers: comandos, perguntas de texto e mensagens de voz
+# ---------------------------------------------------------------------------
 @bot.message_handler(commands=["start", "ajuda"])
 def ajuda(message):
     bot.reply_to(
@@ -319,6 +336,9 @@ def voz_desativada(message):
     )
 
 
+# ---------------------------------------------------------------------------
+# Inicialização do bot (long polling)
+# ---------------------------------------------------------------------------
 def start_bot():
     print("Bot iniciado...")
 
