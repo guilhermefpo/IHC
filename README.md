@@ -18,7 +18,9 @@ bot.py ──HTTP──▶ server.py ──▶ fatec.py ──▶ Jan (Qwen3) �
    └──── "💰 Feijão custa R$ 8,99." ◀── colunas + linhas
 ```
 
-1. **`bot.py`** recebe a mensagem e envia a pergunta para a API.
+1. **`bot.py`** recebe a mensagem e envia a pergunta para a API. Se for um
+   áudio, `transcricao.py` primeiro converte a fala em texto e o bot mostra
+   o que entendeu.
 2. **`server.py`** repassa a pergunta para `generate()`.
 3. **`fatec.py`**:
    - normaliza a pergunta e procura o SQL no cache;
@@ -39,6 +41,7 @@ ao usuário e nenhum SQL é executado.
 | `bot.py` | Bot do Telegram: recebe perguntas, chama a API, formata a resposta (preços em R$, datas DD/MM/AAAA, listas) e divide mensagens longas. |
 | `server.py` | API FastAPI. Na inicialização cria o banco e aquece o modelo. Rota `GET /estoque?pergunta=...`. |
 | `fatec.py` | Núcleo Text-to-SQL. Contém:<br>• criação e carga do banco;<br>• configuração do LLM;<br>• prompt com regras e exemplos (`TextToSQL`);<br>• gerador com validação (`ReliableSQLGenerator`);<br>• cache e execução da consulta (`generate`). |
+| `transcricao.py` | Transcreve mensagens de voz em português com faster-whisper (local, CPU). Filtra silêncio e frases inventadas pelo modelo. |
 | `timing.py` | Mede o tempo de cada etapa. Os tempos aparecem nos logs `METRICAS_BOT` e `METRICAS_SERVICO`. |
 | `lojas.db` | Banco SQLite com a tabela `produtos` (50 itens de exemplo). |
 | `tests/test_generator.py` | Testes do cache, das métricas e das respostas de esclarecimento (o LLM é simulado). |
@@ -53,6 +56,7 @@ Crie um `.env` na raiz do projeto:
 TELEGRAM_BOT_TOKEN=seu_token_do_botfather
 JAN_MODEL=Qwen3-0_6B-BF16              # opcional
 JAN_API_BASE=http://127.0.0.1:1337/v1  # opcional
+WHISPER_MODEL=small                    # opcional: tiny, base, small
 ```
 
 No Jan:

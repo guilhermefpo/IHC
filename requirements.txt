@@ -12,3 +12,8 @@ requests==2.34.2
 
 # Leitura do .env
 python-dotenv==1.2.3
+
+# Transcrição de voz (local, CPU)
+faster-whisper==1.2.1
+# av 19 removeu o parâmetro metadata_errors usado pelo faster-whisper 1.2.1.
+av==16.1.0

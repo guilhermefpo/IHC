@@ -9,6 +9,7 @@ import requests
 import telebot
 from dotenv import load_dotenv
 from timing import measure
+from transcricao import transcrever
 
 
 # ---------------------------------------------------------------------------
@@ -18,6 +19,8 @@ load_dotenv()
 
 API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 API_URL = "http://127.0.0.1:8000/estoque"
+# Áudios longos demoram para transcrever e raramente são perguntas de estoque.
+LIMITE_AUDIO_SEGUNDOS = 30
 
 if not API_TOKEN:
     raise RuntimeError(
@@ -276,20 +279,49 @@ def ajuda(message):
     )
 
 
-@bot.message_handler(content_types=["text"])
-def reply_text(message):
+def transcrever_voz(message, aviso, tempos: dict) -> str:
+    """
+    Baixa o áudio do Telegram, transcreve e mostra ao usuário o que foi entendido.
+    Retorna string vazia quando não há fala reconhecível.
+    """
+    with measure(tempos, "telegram_download_audio"):
+        arquivo = bot.get_file(message.voice.file_id)
+        audio = bot.download_file(arquivo.file_path)
+
+    with measure(tempos, "transcricao"):
+        texto = transcrever(audio)
+
+    print(f"Transcrição: {texto!r}")
+    if texto:
+        # Mostrar a transcrição deixa claro o que foi entendido (bom para IHC).
+        editar_aviso(aviso, f'🎤 Entendi: "{texto}"\n\n⏳ Processando...')
+    return texto
+
+
+def responder(message, voz: bool = False):
+    """
+    Fluxo comum a texto e voz: obtém a pergunta, consulta a API e responde.
+    """
     inicio = time.perf_counter()
-
-    pergunta = normalizar_pergunta(message.text)
-
-    print(f"Pergunta recebida: {pergunta}")
 
     tempos = {}
     aviso = None
     dados = {}
     try:
         with measure(tempos, "telegram_aviso"):
-            aviso = bot.reply_to(message, "⏳ Processando sua pergunta...")
+            aviso = bot.reply_to(
+                message,
+                "🎧 Ouvindo seu áudio..." if voz else "⏳ Processando sua pergunta...",
+            )
+
+        texto = transcrever_voz(message, aviso, tempos) if voz else message.text
+        if not texto:
+            editar_aviso(aviso, "🤔 Não consegui entender o áudio. Pode repetir?")
+            return
+
+        pergunta = normalizar_pergunta(texto)
+        print(f"Pergunta recebida: {pergunta}")
+
         # Inclui rede HTTP, espera e processamento da API; não é só rede.
         with measure(tempos, "api_http"):
             dados = consultar_api(pergunta)
@@ -328,12 +360,20 @@ def reply_text(message):
         }, ensure_ascii=False))
 
 
+@bot.message_handler(content_types=["text"])
+def reply_text(message):
+    responder(message)
+
+
 @bot.message_handler(content_types=["voice"])
-def voz_desativada(message):
-    bot.reply_to(
-        message,
-        "A função de voz está temporariamente desativada.",
-    )
+def reply_voice(message):
+    if message.voice.duration > LIMITE_AUDIO_SEGUNDOS:
+        bot.reply_to(
+            message,
+            f"🎤 Envie áudios de até {LIMITE_AUDIO_SEGUNDOS} segundos.",
+        )
+        return
+    responder(message, voz=True)
 
 
 # ---------------------------------------------------------------------------
