@@ -63,6 +63,13 @@ _PADRAO_NAO_SUPORTADO = re.compile(
     r"excel|apresenta[cç][aã]o|slides?|diagrama)\b",
     re.IGNORECASE,
 )
+# Saúde: o estoque não tem remédios e o bot não deve dar orientação médica.
+_PADRAO_SAUDE = re.compile(
+    r"\b(rem[eé]dios?|medicamentos?|medica[cç][aã]o|doen[cç]as?|doentes?|"
+    r"passando mal|sintomas?|febre|dor de|curar|cura|tratamento|"
+    r"m[eé]dic[oa]s?|hospital|receita m[eé]dica)\b",
+    re.IGNORECASE,
+)
 # Lista curta de ofensas comuns; só vale quando a mensagem não é sobre o estoque.
 _PADRAO_OFENSA = re.compile(
     r"\b(vai tomar|vtnc|tnc|fdp|filho da puta|porra|caralho|merda|idiota|"
@@ -122,9 +129,20 @@ PALAVRAS_DOMINIO = frozenset("""
     grama gramas litro litros tamanho embalagem frutas legumes verduras
 """.split())
 
+# Fração da mensagem descartada a partir da qual o bot dá a dica de perguntar
+# de forma direta. Mensagens curtas nunca recebem a dica.
+LIMITE_ENROLACAO = 0.5
+_MINIMO_PALAVRAS_ENROLACAO = 12
+
 # Palavras curtas demais geram falsos positivos na comparação aproximada.
 _TAMANHO_MINIMO_APROXIMADO = 5
 _SIMILARIDADE_MINIMA = 0.8
+# Palavras comuns parecidas com termos do estoque que nunca devem casar por
+# aproximação (vistas nos logs: "estou" ~ "estoque", "preciso" ~ "preço").
+_PALAVRAS_COMUNS = frozenset("""
+    estou esta estava estamos estao estar estive preciso precisa precisava
+    precisamos preso presa prezo preza pessoa cabo sobre
+""".split())
 
 MENSAGENS = {
     "saudacao": (
@@ -146,6 +164,11 @@ MENSAGENS = {
         "Não consigo gerar gráficos, mapas mentais, relatórios ou arquivos. "
         "Posso responder perguntas como: qual o preço médio por departamento? "
         "ou quais produtos vencem este mês?"
+    ),
+    "saude": (
+        "Sinto muito que você não esteja bem. Não tenho remédios no estoque "
+        "e não posso dar orientação de saúde. Se estiver passando mal, procure "
+        "um médico ou ligue 192 (SAMU). Para produtos do estoque, é só perguntar."
     ),
     "ofensa": (
         "Vamos manter o respeito. Posso ajudar com preços, quantidades "
@@ -197,6 +220,8 @@ def eh_do_dominio(texto: str, vocabulario: frozenset = frozenset()) -> bool:
     for palavra in re.findall(r"[\w-]+", texto):
         if palavra in termos:
             return True
+        if palavra in _PALAVRAS_COMUNS:
+            continue
         if len(palavra) >= _TAMANHO_MINIMO_APROXIMADO and difflib.get_close_matches(
             palavra, termos, n=1, cutoff=_SIMILARIDADE_MINIMA
         ):
@@ -238,6 +263,8 @@ def avaliar_pergunta(texto: str, vocabulario: frozenset = frozenset()):
 
     if _PADRAO_ALTERACAO.search(limpo):
         return "alteracao", limpo
+    if _PADRAO_SAUDE.search(limpo):
+        return "saude", limpo
     if _PADRAO_NAO_SUPORTADO.search(limpo):
         return "nao_suportado", limpo
 
@@ -251,3 +278,18 @@ def avaliar_pergunta(texto: str, vocabulario: frozenset = frozenset()):
     for padrao, departamento in _SINONIMOS_DEPARTAMENTO:
         pergunta = padrao.sub(departamento, pergunta)
     return "ok", pergunta
+
+
+def tem_enrolacao(texto: str, pergunta: str) -> bool:
+    """
+    Indica se a maior parte da mensagem foi descartada por não ter relação
+    com o estoque (ex.: uma história de jogo com a pergunta no final).
+
+    Saudações e cortesias não contam: "bom dia, quanto custa o arroz?" é
+    uma pergunta natural, não enrolação.
+    """
+    total = len(limpar_pergunta(texto).split())
+    if total < _MINIMO_PALAVRAS_ENROLACAO:
+        return False
+    aproveitadas = len(pergunta.split())
+    return (total - aproveitadas) / total > LIMITE_ENROLACAO

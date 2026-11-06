@@ -62,6 +62,7 @@ TELEGRAM_BOT_TOKEN=seu_token_do_botfather
 JAN_MODEL=Qwen3-0_6B-BF16              # opcional
 JAN_API_BASE=http://127.0.0.1:1337/v1  # opcional
 WHISPER_MODEL=small                    # opcional: tiny, base, small
+TELEGRAM_IPV6=1                        # opcional: só se a rede tiver IPv6 funcionando
 ```
 
 No Jan:

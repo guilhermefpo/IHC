@@ -2,7 +2,7 @@
 
 import unittest
 
-from filtro import avaliar_pergunta, limpar_pergunta, separar_partes
+from filtro import avaliar_pergunta, limpar_pergunta, separar_partes, tem_enrolacao
 
 VOCABULARIO = frozenset({"arroz", "feijao", "cafe", "creme dental", "papel-higienico", "higiene"})
 
@@ -92,6 +92,23 @@ class AvaliarPerguntaTests(unittest.TestCase):
         )
         self.assertEqual((status, limpo), ("ok", "quanto custa o arroz"))
 
+    def test_saude(self):
+        for texto in (
+            "estou passando muito mal, preciso de um remédio. quais produtos você indica?",
+            "estou muito doente",
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual(self.avaliar(texto), "saude")
+
+    def test_palavras_comuns_nao_casam_por_aproximacao(self):
+        # "estou" ~ "estoque", "preso" ~ "peso" e "preciso" ~ "preço" (logs reais).
+        for texto in (
+            "eu estou jogando um jogo e estou preso em um chefe",
+            "eu preciso da sua ajuda",
+        ):
+            with self.subTest(texto=texto):
+                self.assertEqual(self.avaliar(texto), "fora_do_escopo")
+
     def test_troca_sinonimos_de_departamento(self):
         status, limpo = avaliar_pergunta(
             "qual a média do valor dos produtos de legumes e frutas?", VOCABULARIO
@@ -102,6 +119,27 @@ class AvaliarPerguntaTests(unittest.TestCase):
         self.assertEqual(self.avaliar("tem arros?"), "ok")
         self.assertEqual(self.avaliar("qto ta o feijao"), "ok")
         self.assertEqual(self.avaliar("produtos vencios"), "ok")
+
+
+class TemEnrolacaoTests(unittest.TestCase):
+    def enrolacao(self, texto):
+        _, pergunta = avaliar_pergunta(texto, VOCABULARIO)
+        return tem_enrolacao(texto, pergunta)
+
+    def test_historia_com_pergunta_no_final(self):
+        self.assertTrue(self.enrolacao(
+            "eu estou jogando um jogo e estou preso em um chefe muito difícil. "
+            "para derrotar ele preciso resolver um enigma. "
+            "qual o preço do arroz?"
+        ))
+
+    def test_cortesia_nao_conta_como_enrolacao(self):
+        self.assertFalse(self.enrolacao(
+            "Bom dia! Tudo bem? Será que você consegue me dizer, por favor, quanto custa o arroz?"
+        ))
+
+    def test_pergunta_direta(self):
+        self.assertFalse(self.enrolacao("quanto custa o arroz?"))
 
 
 class SepararPartesTests(unittest.TestCase):

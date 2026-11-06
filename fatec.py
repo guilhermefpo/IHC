@@ -21,6 +21,7 @@ from filtro import (
     avaliar_pergunta,
     sem_acento,
     separar_partes,
+    tem_enrolacao,
 )
 
 # ---------------------------------------------------------------------------
@@ -734,15 +735,19 @@ def generate(question):
     }
     token = request_metrics.set(metrics)
     start = perf_counter()
+    rambling = False
     try:
         try:
             # Remove "bom dia", "por favor" etc. e barra o que não é do estoque
             # antes de gastar uma chamada ao LLM.
             with measure(metrics["tempos_segundos"], "filtro"):
+                original = question
                 status, question = avaliar_pergunta(question, VOCABULARIO_DB)
             if status != "ok":
                 print(f"Pergunta barrada pelo filtro ({status}): {question!r}")
                 raise InterpretationRequired(status, MENSAGENS[status])
+            # Muito texto sem relação: responde a parte útil e o bot dá uma dica.
+            rambling = tem_enrolacao(original, question)
 
             # O modelo responde uma pergunta por vez; o resto volta para o bot.
             question, pending = separar_partes(question)
@@ -764,6 +769,7 @@ def generate(question):
                 "resultados": results[:LIMITE_LINHAS],
                 "truncado": truncated,
                 "pergunta_pendente": pending,
+                "enrolacao": rambling,
             }
             # Sem resultado num filtro por nome: sugere nomes parecidos.
             match = PADRAO_PRODUTO.search(sql)
@@ -777,6 +783,7 @@ def generate(question):
                 "mensagem": str(clarification),
                 "sql": None,
                 "resultados": [],
+                "enrolacao": rambling,
             }
         response["metricas"] = metrics
         return response

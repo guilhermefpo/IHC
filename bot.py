@@ -6,6 +6,7 @@ import time
 
 import requests
 import telebot
+import urllib3.util.connection
 from dotenv import load_dotenv
 from filtro import PADRAO_DEPARTAMENTO, PADRAO_PRODUTO
 from timing import measure
@@ -26,6 +27,13 @@ if not API_TOKEN:
     raise RuntimeError(
         "A variável TELEGRAM_BOT_TOKEN não foi encontrada no .env."
     )
+
+# Nesta rede o IPv6 até o Telegram expira: cada conexão nova esperava 15 s
+# (CONNECT_TIMEOUT do telebot) antes de cair para o IPv4, que conecta em
+# ~0,2 s. Com "False", o requests resolve e conecta só por IPv4.
+# Para voltar ao comportamento padrão, defina TELEGRAM_IPV6=1 no .env.
+if os.getenv("TELEGRAM_IPV6") != "1":
+    urllib3.util.connection.HAS_IPV6 = False
 
 bot = telebot.TeleBot(API_TOKEN)
 
@@ -97,6 +105,7 @@ EMOJIS_STATUS = {
     "fora_do_escopo": "🙅",
     "alteracao": "🔒",
     "nao_suportado": "🛠️",
+    "saude": "💙",
     "ofensa": "🙂",
 }
 
@@ -185,7 +194,8 @@ def frase_valor_unico(
     if tipo == "dinheiro":
         preco = f"R$ {formatar_numero(valor, 2)}"
         if eh_media:
-            return f"💰 O preço médio dos produtos{contexto} é {preco}."
+            alvo = f"de {produto}" if produto else f"dos produtos{contexto}"
+            return f"💰 O preço médio {alvo} é {preco}."
         if agregado == "sum" or "total" in nome_coluna:
             alvo = f"dos produtos{contexto}" if contexto else "do estoque"
             return f"💰 O valor total {alvo} é {preco}."
@@ -237,16 +247,24 @@ def formatar_resultado(dados: dict) -> str:
     O SQL gerado não é exibido ao usuário; ele continua nos logs da API.
     """
     if dados.get("status") in EMOJIS_STATUS:
-        return f"{EMOJIS_STATUS[dados['status']]} {dados['mensagem']}"
+        texto = f"{EMOJIS_STATUS[dados['status']]} {dados['mensagem']}"
+    else:
+        texto = formatar_dados(dados)
 
-    texto = formatar_dados(dados)
+        # Perguntas com várias partes: o modelo respondeu só a primeira.
+        pendente = dados.get("pergunta_pendente")
+        if pendente:
+            texto += (
+                f"\n\nℹ️ Respondi a primeira parte. Para “{pendente}”, envie "
+                "a pergunta completa em outra mensagem."
+            )
 
-    # Perguntas com várias partes: o modelo respondeu só a primeira.
-    pendente = dados.get("pergunta_pendente")
-    if pendente:
+    # Mensagem com muito texto sem relação: mostra o que foi aproveitado e
+    # ensina a perguntar de forma direta (vale também quando o bot ficou na dúvida).
+    if dados.get("enrolacao"):
         texto += (
-            f"\n\nℹ️ Respondi a primeira parte. Para “{pendente}”, envie "
-            "a pergunta completa em outra mensagem."
+            f"\n\n💡 Considerei só: “{dados.get('pergunta')}”. Pergunte de forma "
+            "direta sobre os produtos para respostas mais rápidas e precisas."
         )
     return texto
 
