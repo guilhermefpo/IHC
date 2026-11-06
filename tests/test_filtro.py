@@ -92,13 +92,14 @@ class AvaliarPerguntaTests(unittest.TestCase):
         )
         self.assertEqual((status, limpo), ("ok", "quanto custa o arroz"))
 
-    def test_saude(self):
+    def test_fora_da_funcao_do_bot(self):
         for texto in (
             "estou passando muito mal, preciso de um remédio. quais produtos você indica?",
             "estou muito doente",
+            "qual produto você recomenda para presente?",
         ):
             with self.subTest(texto=texto):
-                self.assertEqual(self.avaliar(texto), "saude")
+                self.assertEqual(self.avaliar(texto), "fora_do_escopo")
 
     def test_palavras_comuns_nao_casam_por_aproximacao(self):
         # "estou" ~ "estoque", "preso" ~ "peso" e "preciso" ~ "preço" (logs reais).

@@ -63,11 +63,11 @@ _PADRAO_NAO_SUPORTADO = re.compile(
     r"excel|apresenta[cç][aã]o|slides?|diagrama)\b",
     re.IGNORECASE,
 )
-# Saúde: o estoque não tem remédios e o bot não deve dar orientação médica.
-_PADRAO_SAUDE = re.compile(
-    r"\b(rem[eé]dios?|medicamentos?|medica[cç][aã]o|doen[cç]as?|doentes?|"
-    r"passando mal|sintomas?|febre|dor de|curar|cura|tratamento|"
-    r"m[eé]dic[oa]s?|hospital|receita m[eé]dica)\b",
+# Pedidos de recomendação: o bot só consulta dados, não indica produtos
+# (ex.: "preciso de um remédio, quais produtos você indica?").
+_PADRAO_RECOMENDACAO = re.compile(
+    r"\b(indica|indique|indicaria|recomenda|recomende|recomendaria|"
+    r"sugere|sugira|sugeriria|aconselha|aconselhe)\b",
     re.IGNORECASE,
 )
 # Lista curta de ofensas comuns; só vale quando a mensagem não é sobre o estoque.
@@ -152,8 +152,8 @@ MENSAGENS = {
     "agradecimento": "Por nada! Se precisar, é só perguntar sobre o estoque.",
     "confirmacao": "Combinado! Se precisar de algo do estoque, é só perguntar.",
     "fora_do_escopo": (
-        "Só consigo responder perguntas sobre o estoque (preços, "
-        "quantidades, validade e departamentos). Exemplo: "
+        "Não encontrei isso no estoque. Posso responder sobre preços, "
+        "quantidades, validade e departamentos dos produtos. Exemplo: "
         "quanto tem de feijão?"
     ),
     "alteracao": (
@@ -164,11 +164,6 @@ MENSAGENS = {
         "Não consigo gerar gráficos, mapas mentais, relatórios ou arquivos. "
         "Posso responder perguntas como: qual o preço médio por departamento? "
         "ou quais produtos vencem este mês?"
-    ),
-    "saude": (
-        "Sinto muito que você não esteja bem. Não tenho remédios no estoque "
-        "e não posso dar orientação de saúde. Se estiver passando mal, procure "
-        "um médico ou ligue 192 (SAMU). Para produtos do estoque, é só perguntar."
     ),
     "ofensa": (
         "Vamos manter o respeito. Posso ajudar com preços, quantidades "
@@ -263,8 +258,8 @@ def avaliar_pergunta(texto: str, vocabulario: frozenset = frozenset()):
 
     if _PADRAO_ALTERACAO.search(limpo):
         return "alteracao", limpo
-    if _PADRAO_SAUDE.search(limpo):
-        return "saude", limpo
+    if _PADRAO_RECOMENDACAO.search(limpo):
+        return "fora_do_escopo", limpo
     if _PADRAO_NAO_SUPORTADO.search(limpo):
         return "nao_suportado", limpo
 

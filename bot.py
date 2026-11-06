@@ -102,10 +102,9 @@ EMOJIS_STATUS = {
     "saudacao": "👋",
     "agradecimento": "😊",
     "confirmacao": "👍",
-    "fora_do_escopo": "🙅",
+    "fora_do_escopo": "🔎",
     "alteracao": "🔒",
     "nao_suportado": "🛠️",
-    "saude": "💙",
     "ofensa": "🙂",
 }
 
