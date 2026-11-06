@@ -23,6 +23,8 @@ bot.py ──HTTP──▶ server.py ──▶ fatec.py ──▶ Jan (Qwen3) �
    o que entendeu.
 2. **`server.py`** repassa a pergunta para `generate()`.
 3. **`fatec.py`**:
+   - passa a pergunta pelo `filtro.py`: tira "bom dia", "por favor" etc.
+     e responde na hora a saudações e perguntas fora do tema;
    - normaliza a pergunta e procura o SQL no cache;
    - se não houver, pede o SQL ao LLM;
    - valida o SQL (só `SELECT`, testado antes num banco em memória);
@@ -41,9 +43,12 @@ ao usuário e nenhum SQL é executado.
 | `bot.py` | Bot do Telegram: recebe perguntas, chama a API, formata a resposta (preços em R$, datas DD/MM/AAAA, listas) e divide mensagens longas. |
 | `server.py` | API FastAPI. Na inicialização cria o banco e aquece o modelo. Rota `GET /estoque?pergunta=...`. |
 | `fatec.py` | Núcleo Text-to-SQL. Contém:<br>• criação e carga do banco;<br>• configuração do LLM;<br>• prompt com regras e exemplos (`TextToSQL`);<br>• gerador com validação (`ReliableSQLGenerator`);<br>• cache e execução da consulta (`generate`). |
+| `filtro.py` | Remove saudações, cortesias e rodeios; troca sinônimos de departamento; separa perguntas com várias partes; responde na hora a saudações, pedidos de alteração, pedidos não suportados, ofensas e perguntas fora do tema. |
 | `transcricao.py` | Transcreve mensagens de voz em português com faster-whisper (local, CPU). Filtra silêncio e frases inventadas pelo modelo. |
 | `timing.py` | Mede o tempo de cada etapa. Os tempos aparecem nos logs `METRICAS_BOT` e `METRICAS_SERVICO`. |
 | `lojas.db` | Banco SQLite com a tabela `produtos` (50 itens de exemplo). |
+| `tests/test_filtro.py` | Testes do filtro: saudações, agradecimentos, perguntas fora do tema e erros de digitação. |
+| `tests/test_validacao_sql.py` | Testes das checagens do SQL (média exige AVG, listas com nome) e das sugestões de nomes parecidos. |
 | `tests/test_generator.py` | Testes do cache, das métricas e das respostas de esclarecimento (o LLM é simulado). |
 | `.env` | Configuração local; não deve ir para o git. |
 | `ROADMAP.md` | Próximas etapas do projeto. |
@@ -88,7 +93,7 @@ python bot.py
 Para rodar os testes:
 
 ```
-python -m unittest tests.test_generator
+python -m unittest tests.test_filtro tests.test_validacao_sql tests.test_generator
 ```
 
 ## Desempenho

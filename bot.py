@@ -2,12 +2,12 @@
 
 import json
 import os
-import re
 import time
 
 import requests
 import telebot
 from dotenv import load_dotenv
+from filtro import PADRAO_DEPARTAMENTO, PADRAO_PRODUTO
 from timing import measure
 from transcricao import transcrever
 
@@ -86,10 +86,19 @@ def consultar_api(pergunta: str):
 # ---------------------------------------------------------------------------
 # Formatação: transforma colunas e linhas em frases naturais (sem LLM)
 # ---------------------------------------------------------------------------
-PADRAO_PRODUTO = re.compile(
-    r"nome\)?\s*(?:=|like)\s*(?:lower\()?\s*'%?([^'%]+)%?'",
-    re.IGNORECASE,
-)
+# Respostas sem SQL: esclarecimentos, dúvidas do gerador e perguntas barradas.
+EMOJIS_STATUS = {
+    "esclarecimento": "🤔",
+    "informacao_indisponivel": "🤔",
+    "incerto": "🤔",
+    "saudacao": "👋",
+    "agradecimento": "😊",
+    "confirmacao": "👍",
+    "fora_do_escopo": "🙅",
+    "alteracao": "🔒",
+    "nao_suportado": "🛠️",
+    "ofensa": "🙂",
+}
 
 
 def tipo_coluna(coluna: str) -> str:
@@ -97,6 +106,8 @@ def tipo_coluna(coluna: str) -> str:
     Classifica a coluna pelo nome para escolher o formato do valor.
     """
     coluna = coluna.lower()
+    if coluna == "produto" or "descricao" in coluna:
+        return "descricao"
     if coluna.startswith("count") or "produtos" in coluna:
         return "contagem"
     if "preco" in coluna or "valor" in coluna:
@@ -156,32 +167,46 @@ def formatar_valor(coluna: str, valor) -> str:
     return str(valor)
 
 
-def frase_valor_unico(coluna: str, valor, produto: str | None) -> str:
+def frase_valor_unico(
+    coluna: str, valor, produto: str | None, departamento: str | None = None
+) -> str:
     """
-    Monta uma frase natural para resultados de uma linha e uma coluna.
+    Monta uma frase natural para resultados de uma linha e uma coluna,
+    citando o departamento filtrado quando houver ("... de limpeza").
     """
     tipo = tipo_coluna(coluna)
-    agregado = coluna.lower().split("(")[0]
+    nome_coluna = coluna.lower()
+    agregado = nome_coluna.split("(")[0]
+    # Cobre aliases como "preco_medio", "media_valor" e "media_unidades".
+    eh_media = agregado == "avg" or "medi" in nome_coluna
     sujeito = produto.capitalize() if produto else None
+    contexto = f" de {departamento}" if departamento else ""
 
     if tipo == "dinheiro":
         preco = f"R$ {formatar_numero(valor, 2)}"
-        if agregado == "avg" or "media" in coluna.lower():
-            return f"💰 O preço médio é {preco}."
-        if agregado == "sum" or "total" in coluna.lower():
-            return f"💰 O valor total é {preco}."
+        if eh_media:
+            return f"💰 O preço médio dos produtos{contexto} é {preco}."
+        if agregado == "sum" or "total" in nome_coluna:
+            alvo = f"dos produtos{contexto}" if contexto else "do estoque"
+            return f"💰 O valor total {alvo} é {preco}."
         if sujeito:
             return f"💰 {sujeito} custa {preco}."
         return f"💰 O valor é {preco}."
 
     if tipo == "unidades":
+        if eh_media:
+            media = formatar_numero(valor, 1)
+            return f"📦 Em média, {media} unidades por produto{contexto}."
         quantidade = formatar_numero(valor)
         if sujeito:
             return f"📦 Temos {quantidade} unidades de {produto} em estoque."
-        return f"📦 São {quantidade} unidades no total."
+        return f"📦 São {quantidade} unidades{contexto} no total."
 
     if tipo == "contagem":
-        return f"🔢 São {formatar_numero(valor)} produtos."
+        return f"🔢 São {formatar_numero(valor)} produtos{contexto}."
+
+    if tipo == "descricao" and sujeito:
+        return f"📝 {sujeito}: {valor}."
 
     if tipo == "departamento" and sujeito:
         return f"🏷️ {sujeito} fica no departamento de {valor}."
@@ -211,22 +236,47 @@ def formatar_resultado(dados: dict) -> str:
 
     O SQL gerado não é exibido ao usuário; ele continua nos logs da API.
     """
-    if dados.get("status") in ("esclarecimento", "informacao_indisponivel"):
-        return f"🤔 {dados['mensagem']}"
+    if dados.get("status") in EMOJIS_STATUS:
+        return f"{EMOJIS_STATUS[dados['status']]} {dados['mensagem']}"
 
+    texto = formatar_dados(dados)
+
+    # Perguntas com várias partes: o modelo respondeu só a primeira.
+    pendente = dados.get("pergunta_pendente")
+    if pendente:
+        texto += (
+            f"\n\nℹ️ Respondi a primeira parte. Para “{pendente}”, envie "
+            "a pergunta completa em outra mensagem."
+        )
+    return texto
+
+
+def formatar_dados(dados: dict) -> str:
+    """
+    Formata as linhas retornadas pela consulta.
+    """
     colunas = dados.get("colunas") or []
     resultados = dados.get("resultados") or []
+    sql = dados.get("sql") or ""
+    match = PADRAO_PRODUTO.search(sql)
+    produto = match.group(1).strip() if match else None
+    match = PADRAO_DEPARTAMENTO.search(sql)
+    departamento = match.group(1).strip() if match else None
+
     # Agregações sobre zero linhas (ex.: SUM) retornam uma linha com NULL.
     if not resultados or all(
         valor is None for linha in resultados for valor in linha
     ):
+        sugestoes = dados.get("sugestoes") or []
+        if sugestoes:
+            opcoes = " ou ".join(sugestoes)
+            return f"🔎 Não encontrei “{produto}”. Você quis dizer {opcoes}?"
+        if produto:
+            return f"🔎 Não encontrei o produto “{produto}” no estoque."
         return "🔎 Não encontrei nenhum produto para essa pergunta."
 
-    match = PADRAO_PRODUTO.search(dados.get("sql") or "")
-    produto = match.group(1).strip() if match else None
-
     if len(resultados) == 1 and len(resultados[0]) == 1 and colunas:
-        return frase_valor_unico(colunas[0], resultados[0][0], produto)
+        return frase_valor_unico(colunas[0], resultados[0][0], produto, departamento)
 
     if len(resultados) == 1:
         return f"✅ {formatar_linha(colunas, resultados[0])}"
@@ -234,7 +284,8 @@ def formatar_resultado(dados: dict) -> str:
     linhas = "\n".join(
         f"• {formatar_linha(colunas, linha)}" for linha in resultados
     )
-    texto = f"Encontrei {len(resultados)} produtos:\n\n{linhas}"
+    contexto = f" de {departamento}" if departamento else ""
+    texto = f"Encontrei {len(resultados)} produtos{contexto}:\n\n{linhas}"
     if dados.get("truncado"):
         texto += "\n\nMostrando só os primeiros resultados. Refine a pergunta para ver menos itens."
     return texto

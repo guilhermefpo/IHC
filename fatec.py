@@ -3,6 +3,8 @@
 Fluxo: generate() -> cache -> LLM local (Jan/Qwen3 via DSPy) -> validação -> consulta.
 """
 
+import difflib
+import re
 import sqlite3
 import dspy
 import os
@@ -13,6 +15,13 @@ from time import perf_counter
 from functools import lru_cache
 from dotenv import load_dotenv
 from timing import measure
+from filtro import (
+    MENSAGENS,
+    PADRAO_PRODUTO,
+    avaliar_pergunta,
+    sem_acento,
+    separar_partes,
+)
 
 # ---------------------------------------------------------------------------
 # Configuração geral: variáveis de ambiente, métricas e caminho do banco
@@ -23,6 +32,11 @@ request_metrics = ContextVar("request_metrics", default=None)
 
 # Evita respostas enormes que viram várias mensagens no Telegram.
 LIMITE_LINHAS = 50
+
+# Nomes de produtos e departamentos usados pelo filtro; preenchido no create_db().
+VOCABULARIO_DB = frozenset()
+# Nomes originais (com acento) para sugerir quando um produto não é achado.
+PRODUTOS_DB = ()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(BASE_DIR, "lojas.db")
@@ -109,6 +123,45 @@ def create_db():
 
     conn.commit()
     conn.close()
+
+    carregar_vocabulario()
+
+
+def carregar_vocabulario():
+    """
+    Lê nomes de produtos e departamentos do banco para o filtro de perguntas.
+    Assim, um produto cadastrado no futuro já é reconhecido sem mudar código.
+    """
+    global VOCABULARIO_DB, PRODUTOS_DB
+    with closing(sqlite3.connect(db_path)) as conn:
+        linhas = conn.execute("SELECT nome, departamento FROM produtos").fetchall()
+    VOCABULARIO_DB = frozenset(
+        sem_acento(str(valor).lower())
+        for linha in linhas
+        for valor in linha
+        if valor
+    )
+    PRODUTOS_DB = tuple(sorted({str(nome) for nome, _ in linhas if nome}))
+
+
+def sugerir_produtos(termo: str, limite: int = 3) -> list:
+    """
+    Sugere produtos com nome parecido ("feijão carioca" -> ["feijão"]).
+    """
+    termo_comparavel = sem_acento(termo.lower())
+    nomes = {sem_acento(nome.lower()): nome for nome in PRODUTOS_DB}
+    # Nome cadastrado contido no termo buscado (ou o contrário).
+    contidos = [
+        original for comparavel, original in nomes.items()
+        if re.search(rf"\b{re.escape(comparavel)}\b", termo_comparavel)
+        or re.search(rf"\b{re.escape(termo_comparavel)}\b", comparavel)
+    ]
+    parecidos = [
+        nomes[n] for n in difflib.get_close_matches(
+            termo_comparavel, nomes, n=limite, cutoff=0.6
+        )
+    ]
+    return list(dict.fromkeys(contidos + parecidos))[:limite]
 
 
 # ---------------------------------------------------------------------------
@@ -419,6 +472,61 @@ Não confunda o maior preço de um departamento com o maior preço do estoque.
     FROM produtos
     WHERE LOWER(departamento) = LOWER('higiene')
       AND preco < 15;
+
+    Pergunta:
+    qual o preço médio dos produtos?
+
+    SQL:
+    SELECT AVG(preco) AS preco_medio
+    FROM produtos;
+
+    Pergunta:
+    preço médio dos produtos com mais de 100 unidades
+
+    SQL:
+    SELECT AVG(preco) AS preco_medio
+    FROM produtos
+    WHERE qntd > 100;
+
+    Pergunta:
+    qual a média de unidades em estoque por produto?
+
+    SQL:
+    SELECT AVG(qntd) AS media_unidades
+    FROM produtos;
+
+    Pergunta:
+    qual produto é o mais barato?
+
+    SQL:
+    SELECT nome, preco
+    FROM produtos
+    ORDER BY preco ASC
+    LIMIT 1;
+
+    PESO, TAMANHO E EMBALAGEM:
+    Quilos, gramas, litros, ml, peso, tamanho e embalagem estão na descrição
+    (coluna produto), nunca em qntd.
+
+    Pergunta:
+    quantos quilos tem o pacote de feijão?
+
+    SQL:
+    SELECT nome, produto
+    FROM produtos
+    WHERE LOWER(nome) = LOWER('feijão');
+
+    SINÔNIMOS DE DEPARTAMENTO:
+    frutas, legumes e verduras = hortifruti; comida = alimentos;
+    eletrônico = eletrônicos; material escolar = papelaria.
+
+    Pergunta:
+    qual a média de preço das frutas e legumes?
+
+    SQL:
+    SELECT AVG(preco) AS preco_medio
+    FROM produtos
+    WHERE LOWER(departamento) = LOWER('hortifruti');
     """
 
     dbschema = dspy.InputField(
@@ -449,6 +557,47 @@ class InterpretationRequired(ValueError):
     def __init__(self, status, message):
         super().__init__(message)
         self.status = status
+
+
+MENSAGEM_INCERTO = (
+    "Não tenho certeza da resposta para essa pergunta. "
+    "Tente reformular de forma mais direta, ex.: qual o preço médio dos "
+    "produtos de limpeza?"
+)
+
+# Pergunta -> função SQL obrigatória. Evita, por exemplo, responder
+# "preço médio" com o menor preço (erro real visto nos logs).
+_EXIGENCIAS_SQL = (
+    (re.compile(r"\bm[eé]di[ao]s?\b", re.IGNORECASE), re.compile(r"\bavg\s*\(", re.IGNORECASE)),
+    (re.compile(r"\b(soma|somando)\b", re.IGNORECASE), re.compile(r"\bsum\s*\(", re.IGNORECASE)),
+)
+_AGREGACAO = re.compile(r"\b(avg|sum|count|min|max)\s*\(|\bdistinct\b|\bgroup\s+by\b", re.IGNORECASE)
+_LISTA_SELECT = re.compile(r"^\s*select\s+(.*?)\s+from\b", re.IGNORECASE | re.DOTALL)
+
+
+def sql_combina_com_pergunta(question: str, sql: str) -> bool:
+    """
+    Checa se o SQL usa a função que a pergunta pede (média -> AVG, soma -> SUM).
+    """
+    return all(
+        sql_exigido.search(sql)
+        for pergunta, sql_exigido in _EXIGENCIAS_SQL
+        if pergunta.search(question)
+    )
+
+
+def incluir_nome_em_listas(sql: str) -> str:
+    """
+    Acrescenta a coluna nome em listagens que não a trazem, para a resposta
+    não virar uma lista de números soltos ("• 300 un. • 15 un.").
+    """
+    match = _LISTA_SELECT.search(sql)
+    if not match or _AGREGACAO.search(sql) or PADRAO_PRODUTO.search(sql):
+        return sql
+    colunas = match.group(1)
+    if colunas.strip() == "*" or re.search(r"\bnome\b", colunas, re.IGNORECASE):
+        return sql
+    return sql[:match.start(1)] + "nome, " + sql[match.start(1):]
 
 
 class ReliableSQLGenerator(dspy.Module):
@@ -485,6 +634,13 @@ class ReliableSQLGenerator(dspy.Module):
 
             print("SQL gerado:")
             print(sql)
+
+            # Melhor admitir dúvida do que mostrar um número errado com confiança.
+            if not sql_combina_com_pergunta(question, sql):
+                print("SQL descartado: não combina com a pergunta.")
+                raise InterpretationRequired("incerto", MENSAGEM_INCERTO)
+
+            sql = incluir_nome_em_listas(sql)
 
             if not sql.lower().startswith("select"):
                 raise ValueError(
@@ -580,6 +736,17 @@ def generate(question):
     start = perf_counter()
     try:
         try:
+            # Remove "bom dia", "por favor" etc. e barra o que não é do estoque
+            # antes de gastar uma chamada ao LLM.
+            with measure(metrics["tempos_segundos"], "filtro"):
+                status, question = avaliar_pergunta(question, VOCABULARIO_DB)
+            if status != "ok":
+                print(f"Pergunta barrada pelo filtro ({status}): {question!r}")
+                raise InterpretationRequired(status, MENSAGENS[status])
+
+            # O modelo responde uma pergunta por vez; o resto volta para o bot.
+            question, pending = separar_partes(question)
+
             with measure(metrics["tempos_segundos"], "obtencao_sql"):
                 sql = generate_cached(question, SCHEMA)
             with measure(metrics["tempos_segundos"], "consulta_banco"):
@@ -596,7 +763,13 @@ def generate(question):
                 "colunas": columns,
                 "resultados": results[:LIMITE_LINHAS],
                 "truncado": truncated,
+                "pergunta_pendente": pending,
             }
+            # Sem resultado num filtro por nome: sugere nomes parecidos.
+            match = PADRAO_PRODUTO.search(sql)
+            if match and all(v is None for row in results for v in row):
+                response["produto_buscado"] = match.group(1).strip()
+                response["sugestoes"] = sugerir_produtos(response["produto_buscado"])
         except InterpretationRequired as clarification:
             response = {
                 "pergunta": question,

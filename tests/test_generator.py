@@ -20,10 +20,15 @@ class CacheAndTimingTests(unittest.TestCase):
             conn.execute("INSERT INTO produtos (id, nome, qntd) VALUES (1, 'arroz', 10)")
         self.db_patch = patch.object(fatec, "db_path", self.path)
         self.db_patch.start()
+        # O filtro reconhece "arroz" pelo vocabulário lido do banco de teste.
+        self.vocab_patch = patch.object(fatec, "VOCABULARIO_DB", fatec.VOCABULARIO_DB)
+        self.vocab_patch.start()
+        fatec.carregar_vocabulario()
         fatec.generate_cached.cache_clear()
 
     def tearDown(self):
         fatec.generate_cached.cache_clear()
+        self.vocab_patch.stop()
         self.db_patch.stop()
         self.directory.cleanup()
 
